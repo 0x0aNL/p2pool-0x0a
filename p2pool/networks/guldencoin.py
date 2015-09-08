@@ -34,7 +34,7 @@ MIN_TARGET = 0
 MAX_TARGET = 2**256//2**20 - 1
 PERSIST = False
 WORKER_PORT = 27100
-BOOTSTRAP_ADDRS = 'dutchpool.org'.split(' ')
-ANNOUNCE_CHANNEL = '#p2pool-alt'
+BOOTSTRAP_ADDRS = 'node1.guldenpool.nl node2.guldenpool.nl'.split(' ')
+ANNOUNCE_CHANNEL = '#p2pool-guldencoin'
 VERSION_CHECK = lambda v: True
 >>>>>>> Add altcoins
