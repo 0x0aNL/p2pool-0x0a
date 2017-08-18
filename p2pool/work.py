@@ -113,6 +113,8 @@ class WorkerBridge(worker_interface.WorkerBridge):
                     merkle_link=bitcoin_data.calculate_merkle_link([None], 0),
                     subsidy=self.node.net.PARENT.SUBSIDY_FUNC(self.node.bitcoind_work.value['height']),
                     last_update=self.node.bitcoind_work.value['last_update'],
+                    mintime=t['mintime'],
+                    longpollid=t['longpollid'],
                 )
             
             self.current_work.set(t)
@@ -124,7 +126,7 @@ class WorkerBridge(worker_interface.WorkerBridge):
         @self.current_work.transitioned.watch
         def _(before, after):
             # trigger LP if version/previous_block/bits changed or transactions changed from nothing
-            if any(before[x] != after[x] for x in ['version', 'previous_block', 'bits']) or (not before['transactions'] and after['transactions']):
+            if any(before[x] != after[x] for x in ['version', 'previous_block', 'bits', 'mintime', 'longpollid']) or (not before['transactions'] and after['transactions']):
                 self.new_work_event.happened()
         self.merged_work.changed.watch(lambda _: self.new_work_event.happened())
         self.node.best_share_var.changed.watch(lambda _: self.new_work_event.happened())

@@ -74,6 +74,8 @@ def getwork(bitcoind, use_getblocktemplate=False):
         last_update=time.time(),
         use_getblocktemplate=use_getblocktemplate,
         latency=end - start,
+        mintime=work['mintime'],
+        longpollid=work['longpollid'],
     ))
 
 @deferral.retry('Error submitting primary block: (will retry)', 10, 10)

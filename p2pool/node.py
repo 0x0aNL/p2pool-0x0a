@@ -189,7 +189,7 @@ class Node(object):
                     self.bitcoind_work.set((yield helper.getwork(self.bitcoind, self.bitcoind_work.value['use_getblocktemplate'])))
                 except:
                     log.err()
-                yield defer.DeferredList([flag, deferral.sleep(15)], fireOnOneCallback=True)
+                yield defer.DeferredList([flag, deferral.sleep(5)], fireOnOneCallback=True)
         work_poller()
         
         # PEER WORK
