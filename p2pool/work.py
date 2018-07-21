@@ -126,7 +126,7 @@ class WorkerBridge(worker_interface.WorkerBridge):
         @self.current_work.transitioned.watch
         def _(before, after):
             # trigger LP if version/previous_block/bits changed or transactions changed from nothing
-            if any(before[x] != after[x] for x in ['version', 'previous_block', 'bits', 'mintime', 'longpollid']) or (not before['transactions'] and after['transactions']):
+            if any(before[x] != after[x] for x in ['version', 'previous_block', 'bits', 'mintime', 'longpollid', 'pow2_aux1', 'pow2_aux2']) or (not before['transactions'] and after['transactions']):
                 self.new_work_event.happened()
         self.merged_work.changed.watch(lambda _: self.new_work_event.happened())
         self.node.best_share_var.changed.watch(lambda _: self.new_work_event.happened())
@@ -241,13 +241,15 @@ class WorkerBridge(worker_interface.WorkerBridge):
  
     def get_work(self, pubkey_hash, desired_share_target, desired_pseudoshare_target):
         global print_throttle
+        work_rules = set(r[1:] if r.startswith('!') else r for r in self.node.bitcoind_work.value['rules'])
+        required_rules = set(getattr(self.node.net, 'SOFTFORKS_REQUIRED', []))
+        known_rules = set(getattr(self.node.net, 'KNOWN_RULES', []))
         if (self.node.p2p_node is None or len(self.node.p2p_node.peers) == 0) and self.node.net.PERSIST:
             raise jsonrpc.Error_for_code(-12345)(u'p2pool is not connected to any peers')
         if self.node.best_share_var.value is None and self.node.net.PERSIST:
             raise jsonrpc.Error_for_code(-12345)(u'p2pool is downloading shares')
-        if set(r[1:] if r.startswith('!') else r for r in self.node.bitcoind_work.value['rules']) - set(getattr(self.node.net, 'SOFTFORKS_REQUIRED', [])):
-            raise jsonrpc.Error_for_code(-12345)(u'unknown rule activated')
-        
+        if work_rules - required_rules - known_rules:
+            raise jsonrpc.Error_for_code(-12345)(u'unknown rule(s) activated: ' + str(work_rules - required_rules - known_rules) + ', known: ' + str(work_rules - (work_rules - required_rules - known_rules))) 
         if self.merged_work.value:
             tree, size = bitcoin_data.make_auxpow_tree(self.merged_work.value)
             mm_hashes = [self.merged_work.value.get(tree.get(i), dict(hash=0))['hash'] for i in xrange(size)]
@@ -332,9 +334,14 @@ class WorkerBridge(worker_interface.WorkerBridge):
                 net=self.node.net,
                 known_txs=tx_map,
                 base_subsidy=self.node.net.PARENT.SUBSIDY_FUNC(self.current_work.value['height']),
+                segwit_data=None,
+                pow2_commitment=self.current_work.value['pow2_aux1'] if 'pow2_aux1' in self.current_work.value else None,
+                pow2_reward=self.current_work.value['pow2_aux2'] if 'pow2_aux2' in self.current_work.value else None
             )
         
-        packed_gentx = bitcoin_data.tx_id_type.pack(gentx) # stratum miners work with stripped transactions
+        # use tx_type so that PoW2 can be added
+        packed_gentx = bitcoin_data.tx_type.pack(gentx) # stratum miners work with stripped transactions
+        #packed_gentx = bitcoin_data.tx_id_type.pack(gentx) # stratum miners work with stripped transactions
         other_transactions = [tx_map[tx_hash] for tx_hash in other_transaction_hashes]
         
         mm_later = [(dict(aux_work, target=aux_work['target'] if aux_work['target'] != 'p2pool' else share_info['bits'].target), index, hashes) for aux_work, index, hashes in mm_later]
@@ -389,6 +396,11 @@ class WorkerBridge(worker_interface.WorkerBridge):
             assert len(coinbase_nonce) == self.COINBASE_NONCE_LENGTH
             new_packed_gentx = packed_gentx[:-self.COINBASE_NONCE_LENGTH-4] + coinbase_nonce + packed_gentx[-4:] if coinbase_nonce != '\0'*self.COINBASE_NONCE_LENGTH else packed_gentx
             new_gentx = bitcoin_data.tx_type.unpack(new_packed_gentx) if coinbase_nonce != '\0'*self.COINBASE_NONCE_LENGTH else gentx
+
+            if bitcoin_data.is_pow2_tx(gentx): # reintroduce PoW2 data to the gentx produced by stratum miners
+                new_gentx['pow2_commitment'] = gentx['pow2_commitment']
+                new_gentx['pow2_reward'] = gentx['pow2_reward']
+
             if bitcoin_data.is_segwit_tx(gentx): # reintroduce witness data to the gentx produced by stratum miners
                 new_gentx['marker'] = 0
                 new_gentx['flag'] = gentx['flag']
@@ -397,7 +409,7 @@ class WorkerBridge(worker_interface.WorkerBridge):
             header_hash = bitcoin_data.hash256(bitcoin_data.block_header_type.pack(header))
             pow_hash = self.node.net.PARENT.POW_FUNC(bitcoin_data.block_header_type.pack(header))
             try:
-                if pow_hash <= header['bits'].target or p2pool.DEBUG:
+                if pow_hash <= header['bits'].target: # or p2pool.DEBUG: # FIXME: disabled spamming false blocks temporarily
                     helper.submit_block(dict(header=header, txs=[new_gentx] + other_transactions), False, self.node.factory, self.node.bitcoind, self.node.bitcoind_work, self.node.net)
                     if pow_hash <= header['bits'].target:
                         print

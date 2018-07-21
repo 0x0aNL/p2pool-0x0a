@@ -12,7 +12,7 @@ P2P_PORT = 9231
 ADDRESS_VERSION = 38 #pubkey_address
 RPC_PORT = 9232
 RPC_CHECK = defer.inlineCallbacks(lambda bitcoind: defer.returnValue(
-            'Guldenaddress' in (yield bitcoind.rpc_help()) and
+            'guldenprivkey' in (yield bitcoind.rpc_help()) and
             not (yield bitcoind.rpc_getinfo())['testnet']
         ))
 SUBSIDY_FUNC = lambda height: 100*100000000
@@ -26,3 +26,4 @@ TX_EXPLORER_URL_PREFIX = 'https://blockchain.gulden.com/tx/'
 SANE_TARGET_RANGE = (2**256//1000000000 - 1, 2**256//1000 - 1)
 DUMB_SCRYPT_DIFF = 2**16
 DUST_THRESHOLD = 0.03e8
+

@@ -137,7 +137,7 @@ class BaseShare(object):
         return t
 
     @classmethod
-    def generate_transaction(cls, tracker, share_data, block_target, desired_timestamp, desired_target, ref_merkle_link, desired_other_transaction_hashes_and_fees, net, known_txs=None, last_txout_nonce=0, base_subsidy=None, segwit_data=None):
+    def generate_transaction(cls, tracker, share_data, block_target, desired_timestamp, desired_target, ref_merkle_link, desired_other_transaction_hashes_and_fees, net, known_txs=None, last_txout_nonce=0, base_subsidy=None, segwit_data=None, pow2_commitment=None, pow2_reward=None):
         previous_share = tracker.items[share_data['previous_share_hash']] if share_data['previous_share_hash'] is not None else None
         
         height, last = tracker.get_height_and_last(share_data['previous_share_hash'])
@@ -191,13 +191,22 @@ class BaseShare(object):
             65535*net.SPREAD*bitcoin_data.target_to_average_attempts(block_target),
         )
         assert total_weight == sum(weights.itervalues()) + donation_weight, (total_weight, sum(weights.itervalues()) + donation_weight)
-        
-        amounts = dict((script, share_data['subsidy']*(199*weight)//(200*total_weight)) for script, weight in weights.iteritems()) # 99.5% goes according to weights prior to this share
+    
+        available = share_data['subsidy']
+        amounts = dict(
+                # .. nope
+#                [(pow2_commitment.decode('hex'), 0)] +
+#                [(pow2_reward.decode('hex'), 0)] + 
+                (script, available*(199*weight)//(200*total_weight)) for script, weight in weights.iteritems()
+               ) # 99.5% goes according to weights prior to this share
         this_script = bitcoin_data.pubkey_hash_to_script2(share_data['pubkey_hash'])
-        amounts[this_script] = amounts.get(this_script, 0) + share_data['subsidy']//200 # 0.5% goes to block finder
-        amounts[DONATION_SCRIPT] = amounts.get(DONATION_SCRIPT, 0) + share_data['subsidy'] - sum(amounts.itervalues()) # all that's left over is the donation weight and some extra satoshis due to rounding
+        # .. nope.
+#        amounts[pow2_commitment.decode('hex')] = 0;
+#       amounts[pow2_reward.decode('hex')] = 0;
+        amounts[this_script] = available #amounts.get(this_script, 0) + available//200 # 0.5% goes to block finder
+        amounts[DONATION_SCRIPT] = amounts.get(DONATION_SCRIPT, 0) + available - sum(amounts.itervalues()) # all that's left over is the donation weight and some extra satoshis due to rounding
         
-        if sum(amounts.itervalues()) != share_data['subsidy'] or any(x < 0 for x in amounts.itervalues()):
+        if sum(amounts.itervalues()) != available or any(x < 0 for x in amounts.itervalues()):
             raise ValueError()
         
         dests = sorted(amounts.iterkeys(), key=lambda script: (script == DONATION_SCRIPT, amounts[script], script))[-4000:] # block length limit, unlikely to ever be hit
@@ -233,13 +242,17 @@ class BaseShare(object):
             share_info['segwit_data'] = segwit_data
         
         gentx = dict(
-            version=1,
+            version=3,
             tx_ins=[dict(
                 previous_output=None,
                 sequence=None,
-                script=share_data['coinbase'],
+                script=share_data['coinbase']
             )],
-            tx_outs=([dict(value=0, script='\x6a\x24\xaa\x21\xa9\xed' + pack.IntType(256).pack(witness_commitment_hash))] if segwit_activated else []) +
+            tx_outs=
+                ([dict(value=0, script='\x6a\x24\xaa\x21\xa9\xed' + pack.IntType(256).pack(witness_commitment_hash))] if segwit_activated else []) +
+                # .. nope
+                #[dict(value=0, script=pow2_reward.decode('hex'))] +
+                #[dict(value=0, script=pow2_commitment.decode('hex'))] +
                 [dict(value=amounts[script], script=script) for script in dests if amounts[script] or script == DONATION_SCRIPT] +
                 [dict(value=0, script='\x6a\x28' + cls.get_ref_hash(net, share_info, ref_merkle_link) + pack.IntType(64).pack(last_txout_nonce))],
             lock_time=0,
@@ -248,7 +261,12 @@ class BaseShare(object):
             gentx['marker'] = 0
             gentx['flag'] = 1
             gentx['witness'] = [[witness_reserved_value_str]]
-        
+
+        if pow2_commitment is not None:
+            gentx['pow2_commitment'] = pow2_commitment.decode('hex')
+        if pow2_reward is not None:
+            gentx['pow2_reward'] = pow2_reward.decode('hex')
+
         def get_share(header, last_txout_nonce=last_txout_nonce):
             min_header = dict(header); del min_header['merkle_root']
             share = cls(net, None, dict(
@@ -256,7 +274,8 @@ class BaseShare(object):
                 share_info=share_info,
                 ref_merkle_link=dict(branch=[], index=0),
                 last_txout_nonce=last_txout_nonce,
-                hash_link=prefix_to_hash_link(bitcoin_data.tx_id_type.pack(gentx)[:-32-8-4], cls.gentx_before_refhash),
+                hash_link=prefix_to_hash_link(bitcoin_data.tx_id_pow2_type.pack(gentx)[:-32-8-4], cls.gentx_before_refhash),
+                #hash_link=prefix_to_hash_link(bitcoin_data.tx_id_type.pack(gentx)[:-32-8-4], cls.gentx_before_refhash),
                 merkle_link=bitcoin_data.calculate_merkle_link([None] + other_transaction_hashes, 0),
             ))
             assert share.header == header # checks merkle_root

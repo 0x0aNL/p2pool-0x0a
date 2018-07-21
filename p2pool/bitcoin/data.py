@@ -94,6 +94,10 @@ address_type = pack.ComposedType([
 def is_segwit_tx(tx):
     return tx.get('marker', -1) == 0 and tx.get('flag', -1) >= 1
 
+def is_pow2_tx(tx):
+    ispow2 = len(tx.get('pow2_commitment', '')) and len(tx.get('pow2_reward', ''))
+    return ispow2
+
 tx_in_type = pack.ComposedType([
     ('previous_output', pack.PossiblyNoneType(dict(hash=0, index=2**32 - 1), pack.ComposedType([
         ('hash', pack.IntType(256)),
@@ -112,6 +116,13 @@ tx_id_type = pack.ComposedType([
     ('version', pack.IntType(32)),
     ('tx_ins', pack.ListType(tx_in_type)),
     ('tx_outs', pack.ListType(tx_out_type)),
+    ('lock_time', pack.IntType(32))
+])
+
+tx_id_pow2_type = pack.ComposedType([
+    ('version', pack.IntType(32)),
+    ('tx_ins', pack.ListType(tx_in_type)),
+    ('tx_outs', pack.VarStrSizelessType()), # size is already included
     ('lock_time', pack.IntType(32))
 ])
 
@@ -161,6 +172,41 @@ class TransactionType(pack.Type):
                 res += self._witness_type.pack(w)
             res += self._int_type.pack(item['lock_time'])
             return file, res
+        elif is_pow2_tx(item):
+            # Add pow2_commitment and pow2_reward
+
+            addpow2 = True
+
+            tx_outs = ''
+
+            txlen = pack.IntType(8).pack(len(item['tx_outs']) + 2).encode('hex')
+            tx_outs += txlen
+        
+
+            for tx in item['tx_outs']:
+                print "packed tx: ", tx_out_type.pack(tx).encode('hex')
+                tx_outs += tx_out_type.pack(tx).encode('hex')
+
+            if addpow2:
+               # Add PoW2 to coinbase
+                tx_outs += item['pow2_commitment'].encode('hex');
+                tx_outs += item['pow2_reward'].encode('hex');
+
+            # output matches with regular pack when addpow2 = false:
+            # pack.ListType(tx_out_type).pack(item['tx_outs']).encode('hex')
+
+            newitem = dict(
+                version=item['version'],
+                tx_ins=item['tx_ins'],
+                tx_outs=tx_outs.decode('hex'),
+                lock_time=item['lock_time']
+            )
+
+            # output of the following matches if addpow2 is false:
+            #tx_id_pow2_type.pack(newitem).encode('hex')
+            #tx_id_type.pack(item).encode('hex')
+
+            return tx_id_pow2_type.write(file, newitem)
         return tx_id_type.write(file, item)
 
 tx_type = TransactionType()
@@ -193,6 +239,11 @@ block_type = pack.ComposedType([
 stripped_block_type = pack.ComposedType([
     ('header', block_header_type),
     ('txs', pack.ListType(tx_id_type)),
+])
+
+stripped_pow2_block_type = pack.ComposedType([
+    ('header', block_header_type),
+    ('txs', pack.ListType(tx_type)),
 ])
 
 # merged mining

@@ -31,7 +31,7 @@ def check(bitcoind, net):
     except jsonrpc.Error_for_code(-32601): # Method not found
         softforks_supported = set()
     if getattr(net, 'SOFTFORKS_REQUIRED', set()) - softforks_supported:
-        print 'Coin daemon too old! Upgrade!'
+        print 'Coin daemon too old! Softfork(s) "', getattr(net, 'SOFTFORKS_REQUIRED', set()) - softforks_supported, '" required but not supported: ', str(softforks_supported), '! Upgrade!'
         raise deferral.RetrySilentlyException()
 
 @deferral.retry('Error getting work from bitcoind:', 3)
@@ -60,13 +60,19 @@ def getwork(bitcoind, use_getblocktemplate=False):
         work['height'] = (yield bitcoind.rpc_getblock(work['previousblockhash']))['height'] + 1
     elif p2pool.DEBUG:
         assert work['height'] == (yield bitcoind.rpc_getblock(work['previousblockhash']))['height'] + 1
+
+    subsidy=work['coinbasevalue'];
+    if u'PoW\xb2 - phase 2' in work['rules']:
+        if 'pow2_subsidy' in work:
+            subsidy -= work['pow2_subsidy']
+
     defer.returnValue(dict(
         version=work['version'],
         previous_block=int(work['previousblockhash'], 16),
         transactions=map(bitcoin_data.tx_type.unpack, packed_transactions),
         transaction_hashes=map(bitcoin_data.hash256, packed_transactions),
         transaction_fees=[x.get('fee', None) if isinstance(x, dict) else None for x in work['transactions']],
-        subsidy=work['coinbasevalue'],
+        subsidy=subsidy,
         time=work['time'] if 'time' in work else work['curtime'],
         bits=bitcoin_data.FloatingIntegerType().unpack(work['bits'].decode('hex')[::-1]) if isinstance(work['bits'], (str, unicode)) else bitcoin_data.FloatingInteger(work['bits']),
         coinbaseflags=work['coinbaseflags'].decode('hex') if 'coinbaseflags' in work else ''.join(x.decode('hex') for x in work['coinbaseaux'].itervalues()) if 'coinbaseaux' in work else '',
@@ -77,6 +83,8 @@ def getwork(bitcoind, use_getblocktemplate=False):
         latency=end - start,
         mintime=work['mintime'],
         longpollid=work['longpollid'],
+        pow2_aux1=work['pow2_aux1'] if 'pow2_aux1' in work else None,
+        pow2_aux2=work['pow2_aux2'] if 'pow2_aux2' in work else None,
     ))
 
 @deferral.retry('Error submitting primary block: (will retry)', 10, 10)
@@ -91,18 +99,32 @@ def submit_block_p2p(block, factory, net):
 def submit_block_rpc(block, ignore_failure, bitcoind, bitcoind_work, net):
     segwit_rules = set(['!segwit', 'segwit'])
     segwit_activated = len(segwit_rules - set(bitcoind_work.value['rules'])) < len(segwit_rules)
+    pow2_activated = 'pow2_aux1' in bitcoind_work.value and 'pow2_aux2' in bitcoind_work.value and len(bitcoind_work.value['pow2_aux1']) and len(bitcoind_work.value['pow2_aux1'])
+
     if bitcoind_work.value['use_getblocktemplate']:
+        # FIXME: hardcoded PoW2
+        blocktype = bitcoin_data.stripped_block_type
+        if pow2_activated:
+            blocktype = bitcoin_data.stripped_pow2_block_type
+        elif segwit_activated:
+            blocktype = bitcoin_data.block_type
+        packedblock = blocktype.pack(block).encode('hex')
+
         try:
-            result = yield bitcoind.rpc_submitblock((bitcoin_data.block_type if segwit_activated else bitcoin_data.stripped_block_type).pack(block).encode('hex'))
+            result = yield bitcoind.rpc_submitblock(packedblock)
         except jsonrpc.Error_for_code(-32601): # Method not found, for older litecoin versions
-            result = yield bitcoind.rpc_getblocktemplate(dict(mode='submit', data=bitcoin_data.block_type.pack(block).encode('hex')))
+            result = yield bitcoind.rpc_getblocktemplate(dict(mode='submit', data=packedblock))
         success = result is None
     else:
-        result = yield bitcoind.rpc_getmemorypool(bitcoin_data.block_type.pack(block).encode('hex'))
+        result = yield bitcoind.rpc_getmemorypool(packedblock)
         success = result
     success_expected = net.PARENT.POW_FUNC(bitcoin_data.block_header_type.pack(block['header'])) <= block['header']['bits'].target
-    if (not success and success_expected and not ignore_failure) or (success and not success_expected):
+    if (not success and success_expected and not ignore_failure) or (success and not success_expected) or p2pool.DEBUG:
         print >>sys.stderr, 'Block submittal result: %s (%r) Expected: %s' % (success, result, success_expected)
+    if (not success and result != 'inconclusive' and result != 'duplicate') and p2pool.DEBUG:
+        # FIXME: Break off immediately after one failed block: useful for development, terrible for production
+        import os
+        os._exit(1)
 
 def submit_block(block, ignore_failure, factory, bitcoind, bitcoind_work, net):
     submit_block_p2p(block, factory, net)
