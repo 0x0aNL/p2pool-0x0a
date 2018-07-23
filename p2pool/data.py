@@ -63,6 +63,11 @@ def is_segwit_activated(version, net):
     segwit_activation_version = getattr(net, 'SEGWIT_ACTIVATION_VERSION', 0)
     return version >= segwit_activation_version and segwit_activation_version > 0
 
+def is_pow2_activated(version, net):
+    assert not(version is None or net is None)
+    pow2_activation_version = getattr(net, 'POW2_ACTIVATION_VERSION', 0)
+    return version >= pow2_activation_version and pow2_activation_version > 0
+
 DONATION_SCRIPT = '4104ffd03de44a6e11b9917f3a29f9443283d9871c9d743ef30d5eddcd37094b64d1b3d8090496b53256786bf5c82932ec23c3b74d9f05a6f95a8b5529352656664bac'.decode('hex')
 
 class BaseShare(object):
@@ -96,6 +101,7 @@ class BaseShare(object):
             ])),
             ('wtxid_merkle_root', pack.IntType(256))
         ])))
+        pow2_data = pack.ComposedType([('pow2_aux1', pack.VarStrType()), ('pow2_aux2', pack.VarStrType())])
         t['share_info_type'] = pack.ComposedType([
             ('share_data', pack.ComposedType([
                 ('previous_share_hash', pack.PossiblyNoneType(0, pack.IntType(256))),
@@ -106,7 +112,8 @@ class BaseShare(object):
                 ('donation', pack.IntType(16)),
                 ('stale_info', pack.EnumType(pack.IntType(8), dict((k, {0: None, 253: 'orphan', 254: 'doa'}.get(k, 'unk%i' % (k,))) for k in xrange(256)))),
                 ('desired_version', pack.VarIntType()),
-            ]))] + ([segwit_data] if is_segwit_activated(cls.VERSION, net) else []) + [
+            ]))] + ([segwit_data] if is_segwit_activated(cls.VERSION, net) else []) + 
+            ([pow2_data] if is_pow2_activated(cls.VERSION, net) else []) + [
             ('new_transaction_hashes', pack.ListType(pack.IntType(256))),
             ('transaction_hash_refs', pack.ListType(pack.VarIntType(), 2)), # pairs of share_count, tx_count
             ('far_share_hash', pack.PossiblyNoneType(0, pack.IntType(256))),
@@ -232,6 +239,10 @@ class BaseShare(object):
         )
         if segwit_activated:
             share_info['segwit_data'] = segwit_data
+
+        pow2_activated = pow2_commitment is not None and pow2_reward is not None
+        if pow2_activated:
+            share_info['pow2_data'] = dict(pow2_aux1=pow2_commitment, pow2_aux2=pow2_reward)
         
         gentx = dict(
             version=1,
@@ -255,7 +266,6 @@ class BaseShare(object):
             gentx['pow2_commitment'] = pow2_commitment.decode('hex')
         if pow2_reward is not None:
             gentx['pow2_reward'] = pow2_reward.decode('hex')
-        pow2_activated = pow2_commitment is not None and pow2_reward is not None
 
         def get_share(header, last_txout_nonce=last_txout_nonce):
             min_header = dict(header); del min_header['merkle_root']
@@ -264,7 +274,7 @@ class BaseShare(object):
                 share_info=share_info,
                 ref_merkle_link=dict(branch=[], index=0),
                 last_txout_nonce=last_txout_nonce,
-                hash_link=prefix_to_hash_link((bitcoin_data.tx_id_pow2_type if pow2_activated else bitcoin_data.tx_id_type).pack(gentx)[:-32-8-4], cls.gentx_before_refhash),
+                hash_link=prefix_to_hash_link(bitcoin_data.tx_type.pack(gentx)[:-32-8-4], cls.gentx_before_refhash),
                 merkle_link=bitcoin_data.calculate_merkle_link([None] + other_transaction_hashes, 0),
             ))
             assert share.header == header # checks merkle_root
@@ -376,13 +386,15 @@ class BaseShare(object):
         other_tx_hashes = [tracker.items[tracker.get_nth_parent_hash(self.hash, share_count)].share_info['new_transaction_hashes'][tx_count] for share_count, tx_count in self.iter_transaction_hash_refs()]
         if other_txs is not None and not isinstance(other_txs, dict): other_txs = dict((bitcoin_data.hash256(bitcoin_data.tx_type.pack(tx)), tx) for tx in other_txs)
         
+        pow2_data=self.share_info.get('pow2_data', None)
         share_info, gentx, other_tx_hashes2, get_share = self.generate_transaction(tracker, self.share_info['share_data'], self.header['bits'].target, self.share_info['timestamp'], self.share_info['bits'].target, self.contents['ref_merkle_link'], [(h, None) for h in other_tx_hashes], self.net,
-            known_txs=other_txs, last_txout_nonce=self.contents['last_txout_nonce'], segwit_data=self.share_info.get('segwit_data', None))
-        
+            known_txs=other_txs, last_txout_nonce=self.contents['last_txout_nonce'], segwit_data=self.share_info.get('segwit_data', None), 
+            pow2_commitment=pow2_data['pow2_aux1'] if pow2_data is not None else None, pow2_reward=pow2_data['pow2_aux2'] if pow2_data is not None else None)
+
         assert other_tx_hashes2 == other_tx_hashes
         if share_info != self.share_info:
             raise ValueError('share_info invalid')
-        if bitcoin_data.get_txid(gentx) != self.gentx_hash:
+        if bitcoin_data.get_txid_hybrid_type(gentx) != self.gentx_hash:
             raise ValueError('''gentx doesn't match hash_link''')
         if bitcoin_data.calculate_merkle_link([None] + other_tx_hashes, 0) != self.merkle_link: # the other hash commitments are checked in the share_info assertion
             raise ValueError('merkle_link and other_tx_hashes do not match')

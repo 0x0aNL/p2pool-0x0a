@@ -397,6 +397,9 @@ def get_wtxid(tx, txid=None, txhash=None):
 def get_txid(tx):
     return hash256(tx_id_type.pack(tx))
 
+def get_txid_hybrid_type(tx):
+    return hash256(tx_type.pack(tx))
+
 def pubkey_to_script2(pubkey):
     assert len(pubkey) <= 75
     return (chr(len(pubkey)) + pubkey) + '\xac'

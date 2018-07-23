@@ -419,8 +419,9 @@ class WorkerBridge(worker_interface.WorkerBridge):
                 if pow_hash <= header['bits'].target: # or p2pool.DEBUG: # FIXME: disabled spamming false blocks temporarily
                     helper.submit_block(dict(header=header, txs=[new_gentx] + other_transactions), False, self.node.factory, self.node.bitcoind, self.node.bitcoind_work, self.node.net)
                     if pow_hash <= header['bits'].target:
+                        luck = float((header['bits'].target / pow_hash) * 100)
                         print
-                        print 'GOT BLOCK FROM MINER! Passing to bitcoind! %s%064x' % (self.node.net.PARENT.BLOCK_EXPLORER_URL_PREFIX, header_hash)
+                        print 'GOT BLOCK FROM MINER! Passing to bitcoind! %s%064x (%2.f%% of target)' % (self.node.net.PARENT.BLOCK_EXPLORER_URL_PREFIX, header_hash, luck)
                         print
             except:
                 log.err(None, 'Error while processing potential block:')
@@ -463,12 +464,13 @@ class WorkerBridge(worker_interface.WorkerBridge):
                 last_txout_nonce = pack.IntType(8*self.COINBASE_NONCE_LENGTH).unpack(coinbase_nonce)
                 share = get_share(header, last_txout_nonce)
                 
-                print 'GOT SHARE! %s %s prev %s age %.2fs%s' % (
+                print 'GOT SHARE! %s %s prev %s age %.2fs%s (%.2f%% of target)' % (
                     user,
                     p2pool_data.format_hash(share.hash),
                     p2pool_data.format_hash(share.previous_hash),
                     time.time() - getwork_time,
                     ' DEAD ON ARRIVAL' if not on_time else '',
+                    float((header['bits'].target / pow_hash) * 100)
                 )
                 self.my_share_hashes.add(share.hash)
                 if not on_time:
