@@ -23,7 +23,8 @@ CONF_FILE_FUNC = lambda: os.path.join(os.path.join(os.environ['APPDATA'], 'Gulde
 BLOCK_EXPLORER_URL_PREFIX = 'https://blockchain.gulden.com/block/'
 ADDRESS_EXPLORER_URL_PREFIX = 'https://blockchain.gulden.com/address/'
 TX_EXPLORER_URL_PREFIX = 'https://blockchain.gulden.com/tx/'
-SANE_TARGET_RANGE = (2**256//1000000000 - 1, 2**256//1000 - 1)
+SANE_TARGET_RANGE = ((2**256-2**240)//2**34, (2**256-2**240)//2**24)
 DUMB_SCRYPT_DIFF = 2**16
 DUST_THRESHOLD = 0.03e8
+DESIRED_PSEUDOSHARE_TARGET_OVERRULES=True
 

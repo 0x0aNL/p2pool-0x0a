@@ -355,7 +355,12 @@ class WorkerBridge(worker_interface.WorkerBridge):
                     bitcoin_data.average_attempts_to_target(local_hash_rate * 1)) # limit to 1 share response every second by modulating pseudoshare difficulty
         else:
             target = desired_pseudoshare_target
-        target = max(target, share_info['bits'].target)
+
+        desired_pseudoshare_target_overrules = getattr(self.node.net.PARENT, 'DESIRED_PSEUDOSHARE_TARGET_OVERRULES', False)
+        if not (desired_pseudoshare_target_overrules and desired_pseudoshare_target is not None):
+            # Users that use pseudoshare functionality may experience difficulties if it is set too high - by them.
+            target = max(target, share_info['bits'].target)
+
         for aux_work, index, hashes in mm_later:
             target = max(target, aux_work['target'])
         target = math.clip(target, self.node.net.PARENT.SANE_TARGET_RANGE)
