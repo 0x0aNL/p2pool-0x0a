@@ -242,9 +242,6 @@ class BaseShare(object):
             )],
             tx_outs=
                 ([dict(value=0, script='\x6a\x24\xaa\x21\xa9\xed' + pack.IntType(256).pack(witness_commitment_hash))] if segwit_activated else []) +
-                # .. nope
-                #[dict(value=0, script=pow2_reward.decode('hex'))] +
-                #[dict(value=0, script=pow2_commitment.decode('hex'))] +
                 [dict(value=amounts[script], script=script) for script in dests if amounts[script] or script == DONATION_SCRIPT] +
                 [dict(value=0, script='\x6a\x28' + cls.get_ref_hash(net, share_info, ref_merkle_link) + pack.IntType(64).pack(last_txout_nonce))],
             lock_time=0,
@@ -258,6 +255,7 @@ class BaseShare(object):
             gentx['pow2_commitment'] = pow2_commitment.decode('hex')
         if pow2_reward is not None:
             gentx['pow2_reward'] = pow2_reward.decode('hex')
+        pow2_activated = pow2_commitment is not None and pow2_reward is not None
 
         def get_share(header, last_txout_nonce=last_txout_nonce):
             min_header = dict(header); del min_header['merkle_root']
@@ -266,8 +264,7 @@ class BaseShare(object):
                 share_info=share_info,
                 ref_merkle_link=dict(branch=[], index=0),
                 last_txout_nonce=last_txout_nonce,
-                hash_link=prefix_to_hash_link(bitcoin_data.tx_id_pow2_type.pack(gentx)[:-32-8-4], cls.gentx_before_refhash),
-                #hash_link=prefix_to_hash_link(bitcoin_data.tx_id_type.pack(gentx)[:-32-8-4], cls.gentx_before_refhash),
+                hash_link=prefix_to_hash_link((bitcoin_data.tx_id_pow2_type if pow2_activated else bitcoin_data.tx_id_type).pack(gentx)[:-32-8-4], cls.gentx_before_refhash),
                 merkle_link=bitcoin_data.calculate_merkle_link([None] + other_transaction_hashes, 0),
             ))
             assert share.header == header # checks merkle_root
