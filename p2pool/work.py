@@ -115,6 +115,8 @@ class WorkerBridge(worker_interface.WorkerBridge):
                     last_update=self.node.bitcoind_work.value['last_update'],
                     mintime=t['mintime'],
                     longpollid=t['longpollid'],
+                    pow2_aux1=pow2_aux1 if pow2_commitment is not None else None,
+                    pow2_aux2=pow2_aux2 if pow2_reward is not None else None
                 )
             
             self.current_work.set(t)
