@@ -182,15 +182,18 @@ class TransactionType(pack.Type):
             txlen = pack.IntType(8).pack(len(item['tx_outs']) + 2).encode('hex')
             tx_outs += txlen
         
-
+            addpow2 = True
+            toggle = True
             for tx in item['tx_outs']:
-                print "packed tx: ", tx_out_type.pack(tx).encode('hex')
                 tx_outs += tx_out_type.pack(tx).encode('hex')
 
-            if addpow2:
-               # Add PoW2 to coinbase
-                tx_outs += item['pow2_commitment'].encode('hex');
-                tx_outs += item['pow2_reward'].encode('hex');
+                if toggle and addpow2:
+                    toggle = False
+                    # Add PoW2 to coinbase *before* the last DONATION_SCRIPT transaction;
+                    # the latter's hex is manipulated to insert the coinbase_nonce later on
+                    tx_outs += item['pow2_commitment'].encode('hex');
+                    tx_outs += item['pow2_reward'].encode('hex');
+
 
             # output matches with regular pack when addpow2 = false:
             # pack.ListType(tx_out_type).pack(item['tx_outs']).encode('hex')
@@ -205,7 +208,8 @@ class TransactionType(pack.Type):
             # output of the following matches if addpow2 is false:
             #tx_id_pow2_type.pack(newitem).encode('hex')
             #tx_id_type.pack(item).encode('hex')
-
+            
+            # write coinbase transaction
             return tx_id_pow2_type.write(file, newitem)
         return tx_id_type.write(file, item)
 

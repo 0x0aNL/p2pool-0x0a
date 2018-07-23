@@ -119,19 +119,6 @@ class VarIntType(Type):
         else:
             raise ValueError('int too large for varint')
 
-class HexType(Type):
-    _inner_size = VarIntType()
-    
-    def read(self, file):
-        #FIXME
-        length, file = self._inner_size.read(file)
-        value = file
-        return value[0].encode('hex'), file
-    
-    def write(self, file, item):
-        value = item.decode('hex')
-        return self._inner_size.write(file, len(item)), value
-
 class VarStrSizelessType(Type):
     _inner_size = VarIntType()
     

@@ -62,9 +62,6 @@ def getwork(bitcoind, use_getblocktemplate=False):
         assert work['height'] == (yield bitcoind.rpc_getblock(work['previousblockhash']))['height'] + 1
 
     subsidy=work['coinbasevalue'];
-    if u'PoW\xb2 - phase 2' in work['rules']:
-        if 'pow2_subsidy' in work:
-            subsidy -= work['pow2_subsidy']
 
     defer.returnValue(dict(
         version=work['version'],
@@ -101,15 +98,14 @@ def submit_block_rpc(block, ignore_failure, bitcoind, bitcoind_work, net):
     segwit_activated = len(segwit_rules - set(bitcoind_work.value['rules'])) < len(segwit_rules)
     pow2_activated = 'pow2_aux1' in bitcoind_work.value and 'pow2_aux2' in bitcoind_work.value and len(bitcoind_work.value['pow2_aux1']) and len(bitcoind_work.value['pow2_aux1'])
 
-    if bitcoind_work.value['use_getblocktemplate']:
-        # FIXME: hardcoded PoW2
-        blocktype = bitcoin_data.stripped_block_type
-        if pow2_activated:
-            blocktype = bitcoin_data.stripped_pow2_block_type
-        elif segwit_activated:
-            blocktype = bitcoin_data.block_type
-        packedblock = blocktype.pack(block).encode('hex')
+    blocktype = bitcoin_data.stripped_block_type
+    if pow2_activated:
+        blocktype = bitcoin_data.stripped_pow2_block_type
+    elif segwit_activated:
+        blocktype = bitcoin_data.block_type
+    packedblock = blocktype.pack(block).encode('hex')
 
+    if bitcoind_work.value['use_getblocktemplate']:
         try:
             result = yield bitcoind.rpc_submitblock(packedblock)
         except jsonrpc.Error_for_code(-32601): # Method not found, for older litecoin versions
@@ -121,10 +117,6 @@ def submit_block_rpc(block, ignore_failure, bitcoind, bitcoind_work, net):
     success_expected = net.PARENT.POW_FUNC(bitcoin_data.block_header_type.pack(block['header'])) <= block['header']['bits'].target
     if (not success and success_expected and not ignore_failure) or (success and not success_expected) or p2pool.DEBUG:
         print >>sys.stderr, 'Block submittal result: %s (%r) Expected: %s' % (success, result, success_expected)
-    if (not success and result != 'inconclusive' and result != 'duplicate') and p2pool.DEBUG:
-        # FIXME: Break off immediately after one failed block: useful for development, terrible for production
-        import os
-        os._exit(1)
 
 def submit_block(block, ignore_failure, factory, bitcoind, bitcoind_work, net):
     submit_block_p2p(block, factory, net)

@@ -193,17 +193,9 @@ class BaseShare(object):
         assert total_weight == sum(weights.itervalues()) + donation_weight, (total_weight, sum(weights.itervalues()) + donation_weight)
     
         available = share_data['subsidy']
-        amounts = dict(
-                # .. nope
-#                [(pow2_commitment.decode('hex'), 0)] +
-#                [(pow2_reward.decode('hex'), 0)] + 
-                (script, available*(199*weight)//(200*total_weight)) for script, weight in weights.iteritems()
-               ) # 99.5% goes according to weights prior to this share
+        amounts = dict((script, available*(199*weight)//(200*total_weight)) for script, weight in weights.iteritems()) # 99.5% goes according to weights prior to this share
         this_script = bitcoin_data.pubkey_hash_to_script2(share_data['pubkey_hash'])
-        # .. nope.
-#        amounts[pow2_commitment.decode('hex')] = 0;
-#       amounts[pow2_reward.decode('hex')] = 0;
-        amounts[this_script] = available #amounts.get(this_script, 0) + available//200 # 0.5% goes to block finder
+        amounts[this_script] = amounts.get(this_script, 0) + available//200 # 0.5% goes to block finder
         amounts[DONATION_SCRIPT] = amounts.get(DONATION_SCRIPT, 0) + available - sum(amounts.itervalues()) # all that's left over is the donation weight and some extra satoshis due to rounding
         
         if sum(amounts.itervalues()) != available or any(x < 0 for x in amounts.itervalues()):
@@ -242,7 +234,7 @@ class BaseShare(object):
             share_info['segwit_data'] = segwit_data
         
         gentx = dict(
-            version=3,
+            version=1,
             tx_ins=[dict(
                 previous_output=None,
                 sequence=None,

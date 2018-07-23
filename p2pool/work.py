@@ -341,7 +341,6 @@ class WorkerBridge(worker_interface.WorkerBridge):
         
         # use tx_type so that PoW2 can be added
         packed_gentx = bitcoin_data.tx_type.pack(gentx) # stratum miners work with stripped transactions
-        #packed_gentx = bitcoin_data.tx_id_type.pack(gentx) # stratum miners work with stripped transactions
         other_transactions = [tx_map[tx_hash] for tx_hash in other_transaction_hashes]
         
         mm_later = [(dict(aux_work, target=aux_work['target'] if aux_work['target'] != 'p2pool' else share_info['bits'].target), index, hashes) for aux_work, index, hashes in mm_later]
@@ -378,6 +377,9 @@ class WorkerBridge(worker_interface.WorkerBridge):
 
         #need this for stats
         self.last_work_shares.value[bitcoin_data.pubkey_hash_to_address(pubkey_hash, self.node.net.PARENT)]=share_info['bits']
+
+        # NOTE: coinbase transaction hex is rewritten to insert nonce. Make sure last tx_out supports this;
+        # see amounts[DONATION_SCRIPT]
         
         ba = dict(
             version=max(self.current_work.value['version'], 0x20000000),
@@ -389,17 +391,15 @@ class WorkerBridge(worker_interface.WorkerBridge):
             bits=self.current_work.value['bits'],
             share_target=target,
         )
+
         
         received_header_hashes = set()
         
         def got_response(header, user, coinbase_nonce):
             assert len(coinbase_nonce) == self.COINBASE_NONCE_LENGTH
+            # NOTE: coinbase is rewritten with the nonce, make sure any additional coinbase transactions are not the last in the list: their hex will be changed!
             new_packed_gentx = packed_gentx[:-self.COINBASE_NONCE_LENGTH-4] + coinbase_nonce + packed_gentx[-4:] if coinbase_nonce != '\0'*self.COINBASE_NONCE_LENGTH else packed_gentx
             new_gentx = bitcoin_data.tx_type.unpack(new_packed_gentx) if coinbase_nonce != '\0'*self.COINBASE_NONCE_LENGTH else gentx
-
-            if bitcoin_data.is_pow2_tx(gentx): # reintroduce PoW2 data to the gentx produced by stratum miners
-                new_gentx['pow2_commitment'] = gentx['pow2_commitment']
-                new_gentx['pow2_reward'] = gentx['pow2_reward']
 
             if bitcoin_data.is_segwit_tx(gentx): # reintroduce witness data to the gentx produced by stratum miners
                 new_gentx['marker'] = 0
