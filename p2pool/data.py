@@ -101,7 +101,7 @@ class BaseShare(object):
             ])),
             ('wtxid_merkle_root', pack.IntType(256))
         ])))
-        pow2_data = pack.ComposedType([('pow2_aux1', pack.VarStrType()), ('pow2_aux2', pack.VarStrType())])
+        pow2_data = ('pow2_data', pack.ComposedType([('pow2_aux1', pack.HexType()), ('pow2_aux2', pack.HexType())]))
         t['share_info_type'] = pack.ComposedType([
             ('share_data', pack.ComposedType([
                 ('previous_share_hash', pack.PossiblyNoneType(0, pack.IntType(256))),

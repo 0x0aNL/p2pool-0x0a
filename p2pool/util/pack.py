@@ -139,6 +139,18 @@ class VarStrType(Type):
     def write(self, file, item):
         return self._inner_size.write(file, len(item)), item
 
+class HexType(Type):
+    _inner_size = VarIntType()
+    
+    def read(self, file):
+        length, file = self._inner_size.read(file)
+        value, file = read(file, length)
+        return value.encode('hex'), file
+    
+    def write(self, file, item):
+        value = item.decode('hex')
+        return self._inner_size.write(file, len(value)), value
+
 class EnumType(Type):
     def __init__(self, inner, pack_to_unpack):
         self.inner = inner
